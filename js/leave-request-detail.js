@@ -1,30 +1,44 @@
 // ─────────────────────────────────────────────────────────────
 // js/leave-request-detail.js — หน้าที่ 3 รายละเอียดใบลา
-// สัปดาห์ที่ 6 (ต้นสัปดาห์): อ่านจากข้อมูลปลอม และเปลี่ยนสถานะในหน่วยความจำ
+// สัปดาห์ที่ 6: อ่านใบลา + ความเห็นจาก Firestore จริง
+// ปุ่มอนุมัติ/ไม่อนุมัติ และส่งความเห็น ยังแก้แค่ในหน่วยความจำ
+// (เขียนกลับ Firestore จริงเป็นงานสัปดาห์ที่ 7)
 // ─────────────────────────────────────────────────────────────
 
 (function () {
   var รหัสใบลา = ค่าจากURL("id");
   var กล่องใบลา = document.getElementById("กล่องใบลา");
   var กล่องความเห็น = document.getElementById("กล่องความเห็น");
+  var ใบ, ความเห็น;
 
-  // หาใบลาจากข้อมูลปลอม บวกกับใบที่เพิ่งยื่นในหน้าที่ 2
+  // ใบที่เพิ่งยื่นในหน้าที่ 2 ยังไม่บันทึกลง Firestore จริง (งานสัปดาห์ที่ 7)
+  // ถ้าหาใน Firestore ไม่เจอ ให้ลองหาใน sessionStorage แทน
   var ใบลาที่ยื่นใหม่ = JSON.parse(sessionStorage.getItem("ใบลาที่ยื่นใหม่") || "[]");
-  var ใบ = window.LEAVE_DATA.leaveRequests.concat(ใบลาที่ยื่นใหม่)
-    .find(function (x) { return x.id === รหัสใบลา; });
 
-  if (!ใบ) {
-    กล่องใบลา.innerHTML = "<p>ไม่พบใบขอลาที่ต้องการ — อาจถูกลบไปแล้ว หรือลิงก์ไม่ถูกต้อง</p>";
-    return;
-  }
+  db.collection("leaveRequests").doc(รหัสใบลา).get().then(function (doc) {
+    if (doc.exists) {
+      ใบ = Object.assign({ id: doc.id }, doc.data());
+      return db.collection("leaveRequests").doc(รหัสใบลา).collection("approvals").get()
+        .then(function (snap) {
+          ความเห็น = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+        });
+    }
+    ใบ = ใบลาที่ยื่นใหม่.find(function (x) { return x.id === รหัสใบลา; });
+    ความเห็น = [];
+  }).then(function () {
+    if (!ใบ) {
+      กล่องใบลา.innerHTML = "<p>ไม่พบใบขอลาที่ต้องการ — อาจถูกลบไปแล้ว หรือลิงก์ไม่ถูกต้อง</p>";
+      return;
+    }
 
-  var ความเห็น = window.LEAVE_DATA.approvals.filter(function (c) { return c.requestId === ใบ.id; });
+    วาดใบลา();
+    วาดความเห็น();
+    กล่องความเห็น.classList.remove("hidden");
 
-  วาดใบลา();
-  วาดความเห็น();
-  กล่องความเห็น.classList.remove("hidden");
-
-  document.getElementById("ปุ่มส่งความเห็น").addEventListener("click", ส่งความเห็น);
+    document.getElementById("ปุ่มส่งความเห็น").addEventListener("click", ส่งความเห็น);
+  }).catch(function (err) {
+    กล่องใบลา.innerHTML = "<p>โหลดข้อมูลจาก Firestore ไม่สำเร็จ: " + esc(err.message) + "</p>";
+  });
 
   // ── วาดข้อมูลใบลาลงหน้าจอ ──
   function วาดใบลา() {
