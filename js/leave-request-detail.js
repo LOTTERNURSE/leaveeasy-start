@@ -68,12 +68,21 @@
       html += '<p class="hint">ใบนี้พิจารณาแล้ว จึงเปลี่ยนสถานะต่อไม่ได้</p>';
     }
 
+    // ปุ่มลบ แสดงตลอด แต่กดไม่ได้ถ้าใบนี้พิจารณาแล้ว (ลบได้เฉพาะใบที่ยัง รอพิจารณา)
+    html +=
+      '<div class="btn-row">' +
+      '<button type="button" class="btn-danger" id="ปุ่มลบ"' +
+      (ใบ.status === "รอพิจารณา" ? "" : " disabled") +
+      ">ลบใบลา</button>" +
+      "</div>";
+
     กล่องใบลา.innerHTML = html;
 
     if (ใบ.status === "รอพิจารณา") {
       document.getElementById("ปุ่มอนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("อนุมัติ"); });
       document.getElementById("ปุ่มไม่อนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("ไม่อนุมัติ"); });
     }
+    document.getElementById("ปุ่มลบ").addEventListener("click", ลบใบลา);
   }
 
   // ── เปลี่ยนสถานะ (สัปดาห์นี้เปลี่ยนแค่ในหน่วยความจำ) ──
@@ -85,6 +94,21 @@
     }
     ใบ.status = สถานะใหม่;   // แก้เฉพาะช่อง status เท่านั้น
     วาดใบลา();
+  }
+
+  // ── ลบใบลา (ต้องยืนยันก่อนเสมอ) ──
+  function ลบใบลา() {
+    if (!confirm("ยืนยันลบใบลานี้? การลบไม่สามารถกู้คืนได้")) return;
+
+    var ปุ่ม = document.getElementById("ปุ่มลบ");
+    ปุ่ม.disabled = true;
+
+    db.collection("leaveRequests").doc(รหัสใบลา).delete().then(function () {
+      location.href = "leave-requests.html";
+    }).catch(function (err) {
+      alert("ลบไม่สำเร็จ: " + err.message);
+      ปุ่ม.disabled = false;
+    });
   }
 
   // ── รายการความเห็น เรียงจากเก่าไปใหม่ ──
