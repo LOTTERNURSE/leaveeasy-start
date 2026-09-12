@@ -1,0 +1,20 @@
+// ─────────────────────────────────────────────────────────────
+// firestore.rules — กฎเฝ้าข้อมูลของ LeaveEasy
+// สัปดาห์ที่ 7: กฎขั้นต่ำเดียว "ต้องล็อกอินก่อน" ครอบทุกโฟลเดอร์
+// (users, leaveTypes, leaveRequests รวมโฟลเดอร์ย่อย approvals)
+// ยังไม่แยกสิทธิ์ตามบทบาท (employee / manager / hr) — เป็นงานสัปดาห์ที่ 8
+//
+// วิธีใช้ไฟล์นี้: ยังไม่ deploy — เอาข้อความด้านล่างไปวางแทนกฎเดิมใน
+// Firebase Console → Firestore Database → Rules แล้วกด Publish เอง
+// ─────────────────────────────────────────────────────────────
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ครอบทุก document ในทุกโฟลเดอร์ (รวม leaveRequests/{id}/approvals/{id})
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

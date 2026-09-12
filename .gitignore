@@ -25,6 +25,12 @@ desktop.ini
 .claude/settings.local.json
 .env.local
 
+# ── ไฟล์ภายในของเครื่องมือผู้ช่วย (Claude Code / Firebase CLI) ไม่ใช่งานของโปรเจกต์ ──
+.agents/
+.claude/skills/
+.firebase/
+skills-lock.json
+
 
 # ── ไฟล์ที่มีคีย์/ความลับ ──
 #
