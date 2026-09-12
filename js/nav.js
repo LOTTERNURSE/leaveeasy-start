@@ -28,6 +28,23 @@
   if (ที่วาง) ที่วาง.innerHTML = html;
 })();
 
+// เติมชื่อผู้ใช้ที่ล็อกอินอยู่ + ปุ่มออกจากระบบ (สัปดาห์ที่ 7)
+firebase.auth().onAuthStateChanged(function (user) {
+  var ที่วางชื่อ = document.getElementById("navUser");
+  if (!ที่วางชื่อ) return;
+
+  if (!user) {
+    ที่วางชื่อ.textContent = "";
+    return;
+  }
+
+  ที่วางชื่อ.innerHTML = esc(user.displayName || user.email) + ' · <a href="#" id="ปุ่มออกจากระบบ">ออกจากระบบ</a>';
+  document.getElementById("ปุ่มออกจากระบบ").addEventListener("click", function (e) {
+    e.preventDefault();
+    firebase.auth().signOut().then(function () { location.href = "login.html"; });
+  });
+});
+
 // แถบเตือนสีเหลือง ใช้ตอนที่ยังไม่ได้ตั้งค่า Firebase
 function showConfigWarning(ข้อความ) {
   var กล่อง = document.createElement("div");

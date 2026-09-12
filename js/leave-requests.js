@@ -6,7 +6,10 @@
 (function () {
   var กล่อง = document.getElementById("ผลลัพธ์");
 
-  db.collection("leaveRequests").get().then(function (snap) {
+  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วค่อยอ่าน Firestore
+  window.รอสถานะล็อกอิน.then(function () {
+    return db.collection("leaveRequests").get();
+  }).then(function (snap) {
     var ใบลาจากFirestore = snap.docs.map(function (d) {
       return Object.assign({ id: d.id }, d.data());
     });

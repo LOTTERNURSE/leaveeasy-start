@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>เข้าสู่ระบบ · LeaveEasy</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://www.gstatic.com/firebasejs/12.17.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.17.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/login.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 LeaveEasy — เข้าสู่ระบบ</h1>
+    <p class="subtitle">เข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่สมัครไว้</p>
+
+    <div class="card">
+      <div id="ข้อความเตือน" class="alert alert-error hidden"></div>
+
+      <form id="ฟอร์มล็อกอิน">
+        <label for="email">อีเมล</label>
+        <input type="email" id="email" placeholder="you@example.com">
+
+        <label for="password">รหัสผ่าน</label>
+        <input type="password" id="password" placeholder="รหัสผ่านของคุณ">
+
+        <div class="btn-row">
+          <button type="submit" id="ปุ่มเข้าสู่ระบบ">เข้าสู่ระบบ</button>
+        </div>
+      </form>
+
+      <p class="hint">ยังไม่มีบัญชี? <a href="register.html">สมัครสมาชิก</a></p>
+    </div>
+  </div>
+</body>
+</html>

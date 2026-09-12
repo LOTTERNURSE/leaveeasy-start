@@ -15,7 +15,10 @@
   // ถ้าหาใน Firestore ไม่เจอ ให้ลองหาใน sessionStorage แทน
   var ใบลาที่ยื่นใหม่ = JSON.parse(sessionStorage.getItem("ใบลาที่ยื่นใหม่") || "[]");
 
-  db.collection("leaveRequests").doc(รหัสใบลา).get().then(function (doc) {
+  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วค่อยอ่าน Firestore
+  window.รอสถานะล็อกอิน.then(function () {
+    return db.collection("leaveRequests").doc(รหัสใบลา).get();
+  }).then(function (doc) {
     if (doc.exists) {
       ใบ = Object.assign({ id: doc.id }, doc.data());
       return db.collection("leaveRequests").doc(รหัสใบลา).collection("approvals").get()
