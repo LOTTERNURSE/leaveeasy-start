@@ -51,6 +51,9 @@ secrets/
 *.pem
 *.key
 
+# คีย์ OpenRouter ของปุ่ม AI (US-09, สัปดาห์ที่ 8) — ดูเทมเพลตที่ js/openrouter-config.example.js
+js/openrouter-config.js
+
 
 # ─────────────────────────────────────────────────────────────
 # ✅ วิธีตรวจว่าใช้ได้จริง — ก่อน push ทุกครั้ง พิมพ์บอก Claude ว่า

@@ -13,6 +13,8 @@
   <script src="js/util.js" defer></script>
   <script src="js/nav.js" defer></script>
   <script src="js/data.js" defer></script>
+  <script src="js/openrouter-config.js" defer></script>
+  <script src="js/ai-classify.js" defer></script>
   <script src="js/new-leave-request.js" defer></script>
 </head>
 <body>
@@ -32,10 +34,16 @@
         <label for="reason">เหตุผลการลา</label>
         <textarea id="reason" placeholder="เล่าเหตุผลสั้น ๆ ให้หัวหน้าเข้าใจ"></textarea>
 
+        <div class="btn-row">
+          <button type="button" class="btn-ghost" id="ปุ่มAI">🤖 ให้ AI ช่วยจัดประเภทการลา</button>
+        </div>
+        <p id="สถานะAI" class="hint hidden"></p>
+
         <label for="leaveTypeId">ประเภทการลา</label>
         <select id="leaveTypeId">
           <option value="">— เลือกประเภทการลา —</option>
         </select>
+        <p id="ป้ายAI" class="alert alert-ai hidden">ข้อเสนอจาก AI — โปรดตรวจสอบก่อนยืนยัน</p>
 
         <label for="startDate">วันที่เริ่มลา</label>
         <input type="date" id="startDate">

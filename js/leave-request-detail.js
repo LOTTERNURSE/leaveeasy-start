@@ -60,6 +60,21 @@
       return '<div class="field-row"><span class="k">' + r[0] + "</span><span>" + r[1] + "</span></div>";
     }).join("");
 
+    // ปุ่มให้ AI ช่วยสรุปใบลา — ขึ้นเฉพาะใบที่ยังรอพิจารณา (ช่วยหัวหน้าอ่านก่อนกดอนุมัติ)
+    if (ใบ.status === "รอพิจารณา") {
+      if (ใบ.aiSuggestion) {
+        html +=
+          '<div class="alert alert-ai"><strong>สรุปโดย AI — ช่วยอ่านก่อนตัดสินใจ ไม่ใช่คำตัดสิน</strong>' +
+          "<p>" + esc(ใบ.aiSuggestion) + "</p></div>";
+      }
+      html +=
+        '<div class="btn-row">' +
+        '<button type="button" class="btn-ghost" id="ปุ่มAIสรุป">🤖 ' +
+        (ใบ.aiSuggestion ? "สรุปใหม่ด้วย AI" : "ให้ AI ช่วยสรุปใบลา") +
+        "</button></div>" +
+        '<p id="สถานะAIสรุป" class="hint hidden"></p>';
+    }
+
     // ปุ่มอนุมัติ / ไม่อนุมัติ ขึ้นเฉพาะใบที่ยังรอพิจารณา
     if (ใบ.status === "รอพิจารณา") {
       html +=
@@ -84,8 +99,47 @@
     if (ใบ.status === "รอพิจารณา") {
       document.getElementById("ปุ่มอนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("อนุมัติ"); });
       document.getElementById("ปุ่มไม่อนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("ไม่อนุมัติ"); });
+      document.getElementById("ปุ่มAIสรุป").addEventListener("click", สรุปด้วยAI);
     }
     document.getElementById("ปุ่มลบ").addEventListener("click", ลบใบลา);
+  }
+
+  // ── ให้ AI ช่วยสรุปใบลา แล้วบันทึกผลสรุปกลับ Firestore ──
+  async function สรุปด้วยAI() {
+    var ปุ่ม = document.getElementById("ปุ่มAIสรุป");
+    var สถานะ = document.getElementById("สถานะAIสรุป");
+
+    ปุ่ม.disabled = true;
+    var ข้อความปุ่มเดิม = ปุ่ม.textContent;
+    ปุ่ม.textContent = "กำลังสรุป...";
+    สถานะ.classList.add("hidden");
+
+    var ข้อความที่ส่ง = ข้อความสรุปAI(ใบ);
+
+    try {
+      var สรุป = await สรุปใบลาด้วยAI(ใบ);
+      await db.collection("leaveRequests").doc(รหัสใบลา).update({ aiSuggestion: สรุป });
+      บันทึกล็อกAI(ข้อความที่ส่ง, สรุป);
+      ใบ.aiSuggestion = สรุป;
+      วาดใบลา();
+    } catch (err) {
+      บันทึกล็อกAI(ข้อความที่ส่ง, "ผิดพลาด: " + err.message);
+      สถานะ.textContent = "AI สรุปให้ไม่ได้ตอนนี้ (" + err.message + ") — ยังกดอนุมัติ/ไม่อนุมัติได้ตามปกติ";
+      สถานะ.classList.remove("hidden");
+      ปุ่ม.disabled = false;
+      ปุ่ม.textContent = ข้อความปุ่มเดิม;
+    }
+  }
+
+  // ── บันทึกทุกครั้งที่เรียก AI ไว้ในโฟลเดอร์ย่อย aiLog (ไม่ block การทำงานหลัก) ──
+  function บันทึกล็อกAI(input, output) {
+    db.collection("leaveRequests").doc(รหัสใบลา).collection("aiLog").add({
+      input: input,
+      output: output,
+      createdAt: เวลาตอนนี้()
+    }).catch(function (err) {
+      console.error("บันทึกล็อก AI ไม่สำเร็จ:", err);
+    });
   }
 
   // ── เปลี่ยนสถานะ (สัปดาห์นี้เปลี่ยนแค่ในหน่วยความจำ) ──

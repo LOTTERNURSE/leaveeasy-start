@@ -8,6 +8,10 @@
   var ฟอร์ม = document.getElementById("ฟอร์มใบลา");
   var ช่องประเภท = document.getElementById("leaveTypeId");
   var กล่องเตือน = document.getElementById("ข้อความเตือน");
+  var ช่องเหตุผล = document.getElementById("reason");
+  var ปุ่มAI = document.getElementById("ปุ่มAI");
+  var สถานะAI = document.getElementById("สถานะAI");
+  var ป้ายAI = document.getElementById("ป้ายAI");
 
   // เติมรายการเลื่อนลงด้วยประเภทการลาที่มีอยู่
   window.LEAVE_DATA.leaveTypes.forEach(function (ประเภท) {
@@ -16,6 +20,40 @@
     ตัวเลือก.textContent = ประเภท.name;
     ช่องประเภท.appendChild(ตัวเลือก);
   });
+
+  ปุ่มAI.addEventListener("click", async function () {
+    var เหตุผล = ช่องเหตุผล.value.trim();
+    if (!เหตุผล) {
+      แจ้งAI("พิมพ์เหตุผลการลาก่อน แล้วค่อยกดให้ AI ช่วยจัดประเภท");
+      return;
+    }
+
+    ป้ายAI.classList.add("hidden");
+    แจ้งAI("");
+    ปุ่มAI.disabled = true;
+    var ข้อความปุ่มเดิม = ปุ่มAI.textContent;
+    ปุ่มAI.textContent = "กำลังจัดประเภท...";
+
+    try {
+      var ประเภทที่AIเลือก = await จัดประเภทด้วยAI(เหตุผล, window.LEAVE_DATA.leaveTypes);
+      if (ประเภทที่AIเลือก) {
+        ช่องประเภท.value = ประเภทที่AIเลือก.id;
+        ป้ายAI.classList.remove("hidden");
+      } else {
+        แจ้งAI("AI จัดประเภทให้ไม่ได้ — ลองเลือกเองได้เลย");
+      }
+    } catch (err) {
+      แจ้งAI("AI จัดประเภทให้ไม่ได้ตอนนี้ (" + err.message + ") — ลองเลือกเองได้เลย");
+    } finally {
+      ปุ่มAI.disabled = false;
+      ปุ่มAI.textContent = ข้อความปุ่มเดิม;
+    }
+  });
+
+  function แจ้งAI(ข้อความ) {
+    สถานะAI.textContent = ข้อความ;
+    สถานะAI.classList.toggle("hidden", !ข้อความ);
+  }
 
   ฟอร์ม.addEventListener("submit", function (e) {
     e.preventDefault();
