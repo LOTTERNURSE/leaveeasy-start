@@ -12,9 +12,18 @@ LeaveEasy (ระบบขอลาออนไลน์) is a Thai-language onl
 npm install       # installs devDependencies (serve, firebase)
 npm run dev       # serves the static site at http://localhost:3000 (via `serve`)
 npm run seed      # node scripts/seed-firestore.js — seeds users/leaveTypes/leaveRequests into Firestore
+npx playwright test --workers=1              # e2e tests against the live site https://lotternurse.web.app
+firebase deploy --only firestore:rules       # publish firestore.rules (needed after every rules edit)
 ```
 
-There is no build, lint, or test setup — this project intentionally has none.
+There is no build or lint step. Tests (week 9) are Playwright e2e in `tests/`, run against the **deployed** site and the real Firestore — always `--workers=1` (parallel runs contend on the same backend and time out). Steps that need a manager/hr account log in with fixed test accounts from `.env` (template: `.env.example`, gitignored); without them those groups are skipped, not failed. Never make a test promote its own role — the rules forbid it, and `access-isolation.spec.js` asserts exactly that.
+
+## Subagents (`.claude/agents/`)
+
+Three project agents, each pinned to a model:
+- `planner` (opus, read-only) — reads spec + code, writes the step-by-step plan for beat 2 of the 4-beat cycle.
+- `reviewer` (opus, read-only + read-only git) — secret-leak scan, `firestore.rules` vs `ACL.md`, code vs spec. Run before every push.
+- `tester` (sonnet) — writes/runs Playwright tests and updates `test-results.md`; may edit only test files, never app code or rules.
 
 ## How to work in this repo (important)
 
@@ -30,11 +39,7 @@ Before pushing to GitHub, the `.gitignore` header asks that the list of files ab
 
 **Thai identifiers throughout.** Variable, function, and even some parameter names are Thai (e.g. `ใบลาทั้งหมด`, `แสดงตาราง`, `รหัสใบลา`). This is intentional (the course is Thai-language end to end) — match this style when editing existing files rather than switching to English names. Firestore/JS **field names** (e.g. `leaveRequestId`, `status`, `requesterName`) are English and must match exactly — casing matters and a mismatch fails silently (the spec calls this out explicitly: `status` vs `Status` are different Firestore fields).
 
-**Data layer is mid-migration (by design).** The spec rolls out persistence gradually:
-- `js/data.js` (`window.LEAVE_DATA`) is the original hardcoded fake dataset. It's no longer read by the list/detail pages, but is still the source data for the browser-based seeder.
-- `leave-requests.js` and `leave-request-detail.js` (US-01, US-03) now read real data from Firestore (`db.collection(...).get()`), matching this week's (week 6) scope.
-- `new-leave-request.js` and `leave-types.js` (US-02, US-06) still only mutate `sessionStorage` / in-memory arrays — they intentionally do **not** write to Firestore yet; that's week 7 scope. Don't "fix" this without checking the spec's per-US week numbers first.
-- Approve/reject and posting a comment (US-04, US-05) similarly still only mutate in-memory state in `leave-request-detail.js` — read-from-Firestore is live, write-back is week 7.
+**Data layer.** All pages read and write Firestore for real (week 7 CRUD done): create request, approve/reject, comments, delete, leave-type management. `js/data.js` (`window.LEAVE_DATA`) is the original fake dataset, kept only as source data for the browser-based seeder. Login is Firebase Authentication (`js/auth-guard.js` exposes `window.รอสถานะล็อกอิน`); `requesterId` is the signed-in user's uid.
 
 **Firestore schema** (see `leaveeasy-spec.md` §5.2 for the full picture). There are exactly 4 collections (folders) — 3 top-level plus 1 subcollection nested under each leave request document:
 ```
@@ -61,6 +66,6 @@ Names are denormalized alongside every ID (e.g. `requesterName` next to `request
 - `js/seed-data.js` — browser-based, wired to a button on `index.html`, uses the Firebase **compat** SDK (`window.db`) and seeds all 4 collections including `approvals`, reading from `window.LEAVE_DATA`.
 - `scripts/seed-firestore.js` — Node CLI (`npm run seed`), uses the Firebase **modular** SDK (`firebase/app`, `firebase/firestore`, not `firebase-admin` — no service account needed while Firestore rules stay open), seeds only `users`/`leaveTypes`/`leaveRequests` (no `approvals`) with its own literal copy of the same sample data.
 
-**Firestore Security Rules are intentionally wide open** (`allow read, write: if true`) — there's no login yet (that's week 7) and no per-role access control (that's week 8, per US-08). Don't tighten rules or add auth checks unless the task is explicitly about week 7/8 work.
+**Firestore Security Rules are per-role and deployed** (week 8, see `firestore.rules` and `ACL.md`): employees read/delete/comment only on their own requests and can never change `status` or their own `role`; manager/hr read all and approve/reject; only hr edits `leaveTypes`; `approvals`/`aiLog` subcollections follow the parent request's read rule. Because rules check the *query*, an employee list read must include `.where("requesterId", "==", uid)`. Neither seeder works against production any more: the Node one is unauthenticated, and the browser one writes fixed IDs (`users/u001`, requests owned by other users) that the rules reject. The sample data is already in Firestore.
 
 **Pages** (5 total, plus `index.html` as a hub linking to them): `leave-requests.html` (list), `new-leave-request.html` (create form), `leave-request-detail.html` (detail + approve/reject + comments), `leave-types.html` (manage leave types). A 5th page, `dashboard.html`, is described in the spec (US-11) but does not exist yet — it's out of scope until Module 3.

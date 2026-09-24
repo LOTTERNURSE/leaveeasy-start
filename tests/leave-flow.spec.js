@@ -3,6 +3,11 @@
 // ใช้บัญชีที่สมัครขึ้นมาเองในแต่ละเทสต์ (อีเมลสุ่มกันชนกับของจริง/ของเทสต์อื่น)
 // แล้วลบทิ้งทุกอย่างที่สร้างขึ้นท้ายเทสต์เสมอผ่าน test.afterEach
 // ห้ามยุ่งกับข้อมูล seed เดิม (u001-u003, lr001-lr005, lt001-lt003)
+//
+// ขั้นที่ต้องเป็น manager/hr ใช้บัญชีทดสอบถาวรจาก .env (ดู .env.example)
+// ถ้ายังไม่ได้ตั้ง เทสต์กลุ่มนั้นจะถูก skip พร้อมบอกเหตุผล ไม่ใช่ล้ม
+// ⚠️ ใบลาที่ถูกอนุมัติ/ไม่อนุมัติแล้วลบไม่ได้ตามกฎ (ลบได้เฉพาะใบ "รอพิจารณา")
+//    จึงจะค้างอยู่ในฐานข้อมูล — หัวข้อขึ้นต้นด้วย "ทดสอบ" ลบเองได้ใน Console
 // ─────────────────────────────────────────────────────────────
 const { test, expect } = require('@playwright/test');
 
@@ -21,15 +26,29 @@ async function สมัครแล้วล็อกอิน(page, { name, em
   await page.waitForURL(/index\.html$/, { timeout: 30000 });
 }
 
-async function อ่านuid(page) {
-  return page.evaluate(() => firebase.auth().currentUser.uid);
+// บัญชีทดสอบ manager/hr ที่ตั้ง role ไว้ล่วงหน้าใน Firebase Console — อ่านจากไฟล์ .env
+// (ไม่ขึ้น GitHub · ดูเทมเพลตที่ .env.example) เดิมเทสต์ยกระดับบัญชีตัวเองผ่าน
+// Firestore ตรง ๆ แต่ firestore.rules ห้ามแก้ role ใน users แล้ว (ถูกต้อง — มีเทสต์
+// ยืนยันแยกไว้ใน access-isolation.spec.js) จึงต้องใช้บัญชีที่มี role จริงแทน
+const บัญชีทดสอบ = {
+  manager: { email: process.env.LEAVEEASY_MANAGER_EMAIL, password: process.env.LEAVEEASY_MANAGER_PASSWORD },
+  hr: { email: process.env.LEAVEEASY_HR_EMAIL, password: process.env.LEAVEEASY_HR_PASSWORD },
+};
+
+function ไม่มีบัญชี(role) {
+  return !บัญชีทดสอบ[role].email || !บัญชีทดสอบ[role].password;
 }
 
-async function ตั้งบทบาท(page, uid, role) {
-  await page.evaluate(
-    ({ uid, role }) => window.db.collection('users').doc(uid).update({ role }),
-    { uid, role }
-  );
+// เปิดหน้าต่างใหม่ (คนละ context กับพนักงาน) แล้วล็อกอินด้วยบัญชีทดสอบของ role นั้น
+async function เปิดหน้าต่างบัญชี(browser, role) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto('/login.html');
+  await page.fill('#email', บัญชีทดสอบ[role].email);
+  await page.fill('#password', บัญชีทดสอบ[role].password);
+  await page.click('#ปุ่มเข้าสู่ระบบ');
+  await page.waitForURL(/index\.html$/, { timeout: 30000 });
+  return { context, page };
 }
 
 async function ลบใบลาตรง(page, id) {
@@ -39,6 +58,7 @@ async function ลบใบลาตรง(page, id) {
 
 async function ลบบัญชี(page) {
   await page.evaluate(async () => {
+    if (typeof firebase === 'undefined') return;
     const user = firebase.auth().currentUser;
     if (!user) return;
     try { await window.db.collection('users').doc(user.uid).delete(); } catch (e) {}
@@ -66,14 +86,18 @@ async function หารหัสใบลาจากหัวข้อ(page, t
 }
 
 test.describe('เส้นทางหลัก: ยื่นใบลา → อนุมัติ', () => {
+  test.skip(ไม่มีบัญชี('manager'), 'ยังไม่ได้ตั้งบัญชี manager ใน .env (ดู .env.example)');
   let leaveRequestId;
+  let หัวหน้า;
 
   test.afterEach(async ({ page }) => {
     await ลบใบลาตรง(page, leaveRequestId);
     await ลบบัญชี(page);
+    if (หัวหน้า) await หัวหน้า.context.close();
+    หัวหน้า = null;
   });
 
-  test('พนักงานยื่นใบลา → เห็นรอพิจารณา → employee เปิดเองไม่เห็นปุ่มอนุมัติ → ยกระดับเป็น manager แล้วอนุมัติได้', async ({ page }) => {
+  test('พนักงานยื่นใบลา → เห็นรอพิจารณา → employee เปิดเองไม่เห็นปุ่มอนุมัติ → manager เปิดใบเดียวกันแล้วอนุมัติได้', async ({ page, browser }) => {
     test.setTimeout(90000);
     const email = สุ่มอีเมล('main');
     const title = 'ทดสอบ Playwright ลาพักร้อน ' + Date.now();
@@ -102,34 +126,36 @@ test.describe('เส้นทางหลัก: ยื่นใบลา → �
     await expect(page.locator('#ปุ่มอนุมัติ')).toHaveCount(0);
     await expect(page.locator('#ปุ่มไม่อนุมัติ')).toHaveCount(0);
 
-    // ยกระดับบัญชีตัวเองเป็น manager ตรงผ่าน Firestore
-    const uid = await อ่านuid(page);
-    await ตั้งบทบาท(page, uid, 'manager');
-
-    // reload แล้วต้องเห็นปุ่มอนุมัติ/ไม่อนุมัติแล้ว
-    await page.reload();
-    await expect(page.locator('#ปุ่มอนุมัติ')).toBeVisible({ timeout: 20000 });
-    await expect(page.locator('#ปุ่มไม่อนุมัติ')).toBeVisible();
+    // manager (บัญชีทดสอบ คนละหน้าต่าง) เปิดใบเดียวกัน — ต้องเห็นปุ่มอนุมัติ/ไม่อนุมัติ
+    หัวหน้า = await เปิดหน้าต่างบัญชี(browser, 'manager');
+    await หัวหน้า.page.goto('/leave-request-detail.html?id=' + leaveRequestId);
+    await expect(หัวหน้า.page.locator('#ปุ่มอนุมัติ')).toBeVisible({ timeout: 20000 });
+    await expect(หัวหน้า.page.locator('#ปุ่มไม่อนุมัติ')).toBeVisible();
 
     // กดอนุมัติ
-    await page.click('#ปุ่มอนุมัติ');
-    await expect(page.locator('#กล่องใบลา .badge')).toHaveText('อนุมัติ', { timeout: 20000 });
+    await หัวหน้า.page.click('#ปุ่มอนุมัติ');
+    await expect(หัวหน้า.page.locator('#กล่องใบลา .badge')).toHaveText('อนุมัติ', { timeout: 20000 });
 
-    // สถานะต้องอยู่หลัง reload
+    // พนักงาน reload ใบของตัวเอง ต้องเห็นสถานะใหม่ (บันทึกลง Firestore จริง)
     await page.reload();
-    await expect(page.locator('#กล่องใบลา .badge')).toHaveText('อนุมัติ');
+    await expect(page.locator('#กล่องใบลา .badge')).toHaveText('อนุมัติ', { timeout: 20000 });
   });
 });
 
 test.describe('ปุ่มเปลี่ยนสถานะ: ไม่อนุมัติต้องมีความเห็นก่อน', () => {
+  test.skip(ไม่มีบัญชี('manager'), 'ยังไม่ได้ตั้งบัญชี manager ใน .env (ดู .env.example)');
   let leaveRequestId;
+  let หัวหน้า;
 
   test.afterEach(async ({ page }) => {
     await ลบใบลาตรง(page, leaveRequestId);
     await ลบบัญชี(page);
+    if (หัวหน้า) await หัวหน้า.context.close();
+    หัวหน้า = null;
   });
 
-  test('กดไม่อนุมัติก่อนมีความเห็น ต้องเตือนและสถานะไม่เปลี่ยน → เขียนความเห็นแล้วกดใหม่ต้องสำเร็จ', async ({ page }) => {
+  test('กดไม่อนุมัติก่อนมีความเห็น ต้องเตือนและสถานะไม่เปลี่ยน → เขียนความเห็นแล้วกดใหม่ต้องสำเร็จ', async ({ page: หน้าพนักงาน, browser }) => {
+    let page = หน้าพนักงาน;
     test.setTimeout(90000);
     const email = สุ่มอีเมล('reject');
     const title = 'ทดสอบ Playwright ลากิจ ' + Date.now();
@@ -148,8 +174,9 @@ test.describe('ปุ่มเปลี่ยนสถานะ: ไม่อน
 
     leaveRequestId = await หารหัสใบลาจากหัวข้อ(page, title);
 
-    const uid = await อ่านuid(page);
-    await ตั้งบทบาท(page, uid, 'manager');
+    // ต่อจากนี้ทำในหน้าต่างของ manager (บัญชีทดสอบ)
+    หัวหน้า = await เปิดหน้าต่างบัญชี(browser, 'manager');
+    page = หัวหน้า.page;
 
     await page.goto('/leave-request-detail.html?id=' + leaveRequestId);
     await expect(page.locator('#ปุ่มไม่อนุมัติ')).toBeVisible({ timeout: 20000 });
@@ -257,16 +284,20 @@ test.describe('กรอกไม่ครบต้องไม่บันท�
 });
 
 test.describe('ลบใบลา', () => {
+  test.skip(ไม่มีบัญชี('manager'), 'ยังไม่ได้ตั้งบัญชี manager ใน .env (ดู .env.example)');
   let leaveRequestIdรอพิจารณา;
   let leaveRequestIdพิจารณาแล้ว;
+  let หัวหน้า;
 
   test.afterEach(async ({ page }) => {
     await ลบใบลาตรง(page, leaveRequestIdรอพิจารณา);
     await ลบใบลาตรง(page, leaveRequestIdพิจารณาแล้ว);
     await ลบบัญชี(page);
+    if (หัวหน้า) await หัวหน้า.context.close();
+    หัวหน้า = null;
   });
 
-  test('เจ้าของใบ+รอพิจารณา ลบได้จริง · ใบที่พิจารณาแล้ว ปุ่มลบต้อง disabled', async ({ page }) => {
+  test('เจ้าของใบ+รอพิจารณา ลบได้จริง · ใบที่พิจารณาแล้ว ปุ่มลบต้อง disabled', async ({ page, browser }) => {
     test.setTimeout(90000);
     const email = สุ่มอีเมล('delete');
     await สมัครแล้วล็อกอิน(page, { name: 'ผู้ทดสอบลบใบลา', email, password: PASSWORD });
@@ -288,7 +319,7 @@ test.describe('ลบใบลา', () => {
     // ลบสำเร็จแล้วจริง ไม่ต้องลบซ้ำใน afterEach
     leaveRequestIdรอพิจารณา = null;
 
-    // ใบที่ 2 — ยกระดับเป็น manager แล้วอนุมัติ ให้สถานะพิจารณาแล้ว
+    // ใบที่ 2 — ให้ manager (บัญชีทดสอบ) อนุมัติ ให้สถานะพิจารณาแล้ว
     const title2 = 'ทดสอบลบใบลา (พิจารณาแล้ว) ' + Date.now();
     await กรอกฟอร์มใบลา(page, { title: title2, reason: 'r', startDate: '2026-11-16', endDate: '2026-11-16' });
     await page.selectOption('#leaveTypeId', { index: 1 });
@@ -296,30 +327,37 @@ test.describe('ลบใบลา', () => {
     await page.waitForURL(/leave-requests\.html$/, { timeout: 30000 });
     leaveRequestIdพิจารณาแล้ว = await หารหัสใบลาจากหัวข้อ(page, title2);
 
-    const uid = await อ่านuid(page);
-    await ตั้งบทบาท(page, uid, 'manager');
+    หัวหน้า = await เปิดหน้าต่างบัญชี(browser, 'manager');
+    await หัวหน้า.page.goto('/leave-request-detail.html?id=' + leaveRequestIdพิจารณาแล้ว);
+    await expect(หัวหน้า.page.locator('#ปุ่มอนุมัติ')).toBeVisible({ timeout: 20000 });
+    await หัวหน้า.page.click('#ปุ่มอนุมัติ');
+    await expect(หัวหน้า.page.locator('#กล่องใบลา .badge')).toHaveText('อนุมัติ', { timeout: 20000 });
 
+    // เจ้าของใบเปิดใบที่อนุมัติแล้ว — ปุ่มลบต้อง disabled กดไม่ได้
     await page.goto('/leave-request-detail.html?id=' + leaveRequestIdพิจารณาแล้ว);
-    await expect(page.locator('#ปุ่มอนุมัติ')).toBeVisible({ timeout: 20000 });
-    await page.click('#ปุ่มอนุมัติ');
     await expect(page.locator('#กล่องใบลา .badge')).toHaveText('อนุมัติ', { timeout: 20000 });
-
-    // ปุ่มลบต้อง disabled กดไม่ได้
     await expect(page.locator('#ปุ่มลบ')).toBeDisabled();
   });
 });
 
 test.describe('ประเภทการลา (hr-only gate)', () => {
+  test.skip(ไม่มีบัญชี('hr'), 'ยังไม่ได้ตั้งบัญชี hr ใน .env (ดู .env.example)');
   let leaveTypeId;
+  let ฝ่ายบุคคล;
 
   test.afterEach(async ({ page }) => {
-    if (leaveTypeId) {
-      await page.evaluate((id) => window.db.collection('leaveTypes').doc(id).delete().catch(() => {}), leaveTypeId);
+    // ลบประเภทที่ค้าง (ถ้าเทสต์ล้มกลางทาง) ด้วยบัญชี hr — employee ลบไม่ได้ตามกฎ
+    if (leaveTypeId && ฝ่ายบุคคล) {
+      await ฝ่ายบุคคล.page.evaluate((id) => window.db.collection('leaveTypes').doc(id).delete().catch(() => {}), leaveTypeId);
     }
+    leaveTypeId = null;
     await ลบบัญชี(page);
+    if (ฝ่ายบุคคล) await ฝ่ายบุคคล.context.close();
+    ฝ่ายบุคคล = null;
   });
 
-  test('employee เข้าไม่ได้ · ยกระดับเป็น hr แล้วเพิ่ม/ลบ ประเภทการลาได้ และไปโผล่ในฟอร์มยื่นใบลา', async ({ page }) => {
+  test('employee เข้าไม่ได้ · hr เพิ่ม/ลบ ประเภทการลาได้ และไปโผล่ในฟอร์มยื่นใบลา', async ({ page: หน้าพนักงาน, browser }) => {
+    let page = หน้าพนักงาน;
     test.setTimeout(90000);
     const email = สุ่มอีเมล('hrgate');
     await สมัครแล้วล็อกอิน(page, { name: 'ผู้ทดสอบสิทธิ์ HR', email, password: PASSWORD });
@@ -332,11 +370,11 @@ test.describe('ประเภทการลา (hr-only gate)', () => {
     // เมนูบนสุดต้องไม่มีลิงก์ "ประเภทการลา"
     await expect(page.locator('.navbar a', { hasText: 'ประเภทการลา' })).toHaveCount(0);
 
-    // ยกระดับเป็น hr
-    const uid = await อ่านuid(page);
-    await ตั้งบทบาท(page, uid, 'hr');
+    // ต่อจากนี้ทำในหน้าต่างของ hr (บัญชีทดสอบ)
+    ฝ่ายบุคคล = await เปิดหน้าต่างบัญชี(browser, 'hr');
+    page = ฝ่ายบุคคล.page;
 
-    await page.reload();
+    await page.goto('/leave-types.html');
     await expect(page.locator('.navbar a', { hasText: 'ประเภทการลา' })).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#เนื้อหาประเภทการลา')).toBeVisible();
 
@@ -348,10 +386,14 @@ test.describe('ประเภทการลา (hr-only gate)', () => {
     await expect(แถวประเภท).toHaveCount(1, { timeout: 20000 });
     leaveTypeId = await แถวประเภท.locator('[data-del]').getAttribute('data-del');
 
-    // ต้องไปโผล่ในดรอปดาวน์หน้ายื่นใบลาใหม่จริง
-    await page.goto('/new-leave-request.html');
-    await page.waitForFunction(() => document.querySelectorAll('#leaveTypeId option').length > 1);
-    await expect(page.locator('#leaveTypeId option', { hasText: ชื่อประเภท })).toHaveCount(1, { timeout: 20000 });
+    // ต้องไปโผล่ในดรอปดาวน์หน้ายื่นใบลาใหม่จริง — เปิดหน้าใหม่ซ้ำได้ถ้ารอบแรกยังไม่เห็น
+    // (รอบก่อนพบว่าการอ่าน leaveTypes ทันทีหลัง add() บางครั้งได้ผลเก่ามา ~1 ใน 5 ครั้ง
+    // ดู test-results.md — ลองโหลดใหม่แทนการรอหน้าเดิมเฉย ๆ ซึ่งไม่มีวันเปลี่ยน)
+    await expect(async () => {
+      await page.goto('/new-leave-request.html');
+      await page.waitForFunction(() => document.querySelectorAll('#leaveTypeId option').length > 1);
+      await expect(page.locator('#leaveTypeId option', { hasText: ชื่อประเภท })).toHaveCount(1, { timeout: 5000 });
+    }).toPass({ timeout: 45000 });
 
     // ลบประเภททดสอบทิ้ง (อย่าลบของ seed)
     await page.goto('/leave-types.html');

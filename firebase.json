@@ -10,8 +10,16 @@
     "ignore": [
       "firebase.json",
       "**/.*",
+      "**/.*/**",
       "**/node_modules/**",
-      "js/openrouter-config.js"
+      "js/openrouter-config.js",
+      "tests/**",
+      "test-results/**",
+      "playwright-report/**",
+      "playwright.config.js",
+      "package.json",
+      "package-lock.json",
+      "skills-lock.json"
     ]
   }
 }

@@ -4,12 +4,10 @@
 // บัญชี A กับ B เป็นคนละ browser context กันจริง (browser.newContext())
 // เพื่อไม่ให้มี session ค้างข้ามบัญชี
 //
-// หมายเหตุสำคัญ: ข้อ (5ข) ("B เปิด URL ตรงของใบ A ไม่ได้") คาดไว้ล่วงหน้าแล้วว่า
-// จะ FAIL ในสภาพแวดล้อมนี้ — เพราะ firestore.rules ฉบับที่แยกสิทธิ์ตาม requesterId
-// ยังเป็นแค่ไฟล์ local ในโปรเจกต์ ยังไม่ได้ publish ขึ้น Firebase Console จริง
-// (กฎที่ deploy อยู่ตอนนี้คือกฎเก่าของสัปดาห์ที่ 7 ที่เช็คแค่ "ล็อกอินหรือยัง"
-// ไม่เช็คว่าใบนี้เป็นของใคร) เทสต์นี้ยังคงเขียนและรันเต็มรูปแบบตามที่โจทย์สั่งไว้
-// ไม่ข้าม — ผลจริงจะถูกบันทึกไว้ใน test-results.md ว่าเป็นหมวด (ค)
+// (5ก)(5ข) ทดสอบผ่านหน้าเว็บ — B ต้องเห็นใบของ A ไม่ได้ทั้งหน้ารายการและ URL ตรง
+// (5ค)(5ง)(5จ) ทดสอบ "ข้ามหน้าเว็บ" ยิงคำสั่งเข้า Firestore ตรงแบบที่คนเปิด devtools
+// ทำได้ — พิสูจน์ว่ากันไว้ที่ firestore.rules จริง ไม่ใช่แค่ซ่อนปุ่มในหน้าเว็บ
+// ทุกข้อต้องได้ permission-denied
 // ─────────────────────────────────────────────────────────────
 const { test, expect } = require('@playwright/test');
 
@@ -102,5 +100,57 @@ test.describe.serial('การแยกสิทธิ์ระหว่าง�
     await expect(pageB.locator('#กล่องใบลา')).not.toContainText('กำลังโหลดข้อมูล', { timeout: 20000 });
     const เนื้อหาที่Bเห็น = await pageB.locator('#กล่องใบลา').innerText();
     expect(เนื้อหาที่Bเห็น).not.toContain(titleA);
+  });
+
+  test('(5ค) B ยกระดับตัวเองเป็น manager ผ่าน Firestore ตรง ๆ ไม่ได้', async () => {
+    test.setTimeout(60000);
+    await pageB.goto('/index.html');
+    const ผล = await pageB.evaluate(async () => {
+      await window.รอสถานะล็อกอิน;
+      const uid = firebase.auth().currentUser.uid;
+      try {
+        await window.db.collection('users').doc(uid).update({ role: 'manager' });
+        return 'เขียนสำเร็จ (กฎรั่ว!)';
+      } catch (e) {
+        return e.code;
+      }
+    });
+    expect(ผล).toBe('permission-denied');
+  });
+
+  test('(5ง) A อนุมัติใบของตัวเองผ่าน Firestore ตรง ๆ ไม่ได้', async () => {
+    test.setTimeout(60000);
+    await pageA.goto('/index.html');
+    const ผล = await pageA.evaluate(async (id) => {
+      await window.รอสถานะล็อกอิน;
+      try {
+        await window.db.collection('leaveRequests').doc(id).update({ status: 'อนุมัติ' });
+        return 'เขียนสำเร็จ (กฎรั่ว!)';
+      } catch (e) {
+        return e.code;
+      }
+    }, idของA);
+    expect(ผล).toBe('permission-denied');
+  });
+
+  test('(5จ) B เขียนความเห็นลงใบของ A ไม่ได้', async () => {
+    test.setTimeout(60000);
+    await pageB.goto('/index.html');
+    const ผล = await pageB.evaluate(async (id) => {
+      await window.รอสถานะล็อกอิน;
+      const user = firebase.auth().currentUser;
+      try {
+        await window.db.collection('leaveRequests').doc(id).collection('approvals').add({
+          authorId: user.uid,
+          authorName: 'บัญชี B ทดสอบแยกสิทธิ์',
+          message: 'แอบเขียนใบของคนอื่น (ทดสอบอัตโนมัติ)',
+          createdAt: '2026-09-24 00:00',
+        });
+        return 'เขียนสำเร็จ (กฎรั่ว!)';
+      } catch (e) {
+        return e.code;
+      }
+    }, idของA);
+    expect(ผล).toBe('permission-denied');
   });
 });
