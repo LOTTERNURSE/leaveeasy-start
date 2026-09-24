@@ -1,15 +1,38 @@
 // ─────────────────────────────────────────────────────────────
 // js/leave-types.js — หน้าที่ 4 จัดการประเภทการลา
-// สัปดาห์ที่ 6 (ต้นสัปดาห์): เพิ่ม แก้ ลบ ในหน่วยความจำเท่านั้น
+// สัปดาห์ที่ 7: เพิ่ม แก้ ลบ ใน Firestore จริง (collection leaveTypes)
 // ─────────────────────────────────────────────────────────────
 
 (function () {
-  var รายการ = window.LEAVE_DATA.leaveTypes.slice();   // ทำสำเนาไว้แก้
+  var รายการ = [];
   var ที่วางตาราง = document.getElementById("ตารางประเภท");
   var ช่องชื่อใหม่ = document.getElementById("ชื่อประเภทใหม่");
   var กล่องเตือน = document.getElementById("เตือนประเภท");
+  var กล่องเนื้อหา = document.getElementById("เนื้อหาประเภทการลา");
+  var กล่องไม่มีสิทธิ์ = document.getElementById("ไม่มีสิทธิ์เข้าถึง");
 
-  วาดตาราง();
+  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วเช็คสิทธิ์ก่อนค่อยอ่าน Firestore
+  // หน้านี้สำหรับฝ่ายบุคคล (role: hr) เท่านั้น — สัปดาห์ที่ 8
+  window.รอสถานะล็อกอิน.then(function (user) {
+    return db.collection("users").doc(user.uid).get();
+  }).then(function (docผู้ใช้) {
+    var ข้อมูลผู้ใช้ = docผู้ใช้.data();
+    if (!ข้อมูลผู้ใช้ || ข้อมูลผู้ใช้.role !== "hr") {
+      กล่องเนื้อหา.classList.add("hidden");
+      กล่องไม่มีสิทธิ์.classList.remove("hidden");
+      return null;   // ไม่ใช่ hr จึงไม่อ่าน leaveTypes ต่อ
+    }
+    return db.collection("leaveTypes").get();
+  }).then(function (snap) {
+    if (!snap) return;   // ไม่ใช่ hr เข้ามา จบตั้งแต่ขั้นเช็คสิทธิ์แล้ว
+    รายการ = snap.docs.map(function (d) {
+      return Object.assign({ id: d.id }, d.data());
+    });
+    วาดตาราง();
+  }).catch(function (err) {
+    ที่วางตาราง.innerHTML = "<p>โหลดข้อมูลจาก Firestore ไม่สำเร็จ: " + esc(err.message) + "</p>";
+  });
+
   document.getElementById("ปุ่มเพิ่ม").addEventListener("click", เพิ่มประเภท);
 
   function วาดตาราง() {
@@ -45,9 +68,17 @@
       return;
     }
     กล่องเตือน.classList.add("hidden");
-    รายการ.push({ id: "lt-ใหม่-" + Date.now(), name: ชื่อ });
-    ช่องชื่อใหม่.value = "";
-    วาดตาราง();
+
+    db.collection("leaveTypes").add({ name: ชื่อ })
+      .then(function (docRef) {
+        รายการ.push({ id: docRef.id, name: ชื่อ });
+        ช่องชื่อใหม่.value = "";
+        วาดตาราง();
+      })
+      .catch(function (err) {
+        กล่องเตือน.textContent = "⚠️ เพิ่มประเภทไม่สำเร็จ: " + err.message;
+        กล่องเตือน.classList.remove("hidden");
+      });
   }
 
   function แก้ประเภท(id) {
@@ -55,14 +86,30 @@
     var ชื่อใหม่ = prompt("แก้ชื่อประเภทการลา", ประเภท.name);
     if (ชื่อใหม่ === null) return;              // กดยกเลิก
     if (!ชื่อใหม่.trim()) { alert("ชื่อประเภทการลาว่างเปล่าไม่ได้"); return; }
-    ประเภท.name = ชื่อใหม่.trim();
-    วาดตาราง();
+
+    db.collection("leaveTypes").doc(id).update({ name: ชื่อใหม่.trim() })
+      .then(function () {
+        ประเภท.name = ชื่อใหม่.trim();
+        วาดตาราง();
+      })
+      .catch(function (err) {
+        กล่องเตือน.textContent = "⚠️ แก้ประเภทไม่สำเร็จ: " + err.message;
+        กล่องเตือน.classList.remove("hidden");
+      });
   }
 
   function ลบประเภท(id) {
     var ประเภท = รายการ.find(function (t) { return t.id === id; });
     if (!confirm('ยืนยันการลบประเภท "' + ประเภท.name + '" หรือไม่')) return;
-    รายการ = รายการ.filter(function (t) { return t.id !== id; });
-    วาดตาราง();
+
+    db.collection("leaveTypes").doc(id).delete()
+      .then(function () {
+        รายการ = รายการ.filter(function (t) { return t.id !== id; });
+        วาดตาราง();
+      })
+      .catch(function (err) {
+        กล่องเตือน.textContent = "⚠️ ลบประเภทไม่สำเร็จ: " + err.message;
+        กล่องเตือน.classList.remove("hidden");
+      });
   }
 })();

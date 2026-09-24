@@ -1,7 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 // js/new-leave-request.js — หน้าที่ 2 ยื่นใบลาใหม่
-// สัปดาห์ที่ 6 (ต้นสัปดาห์): เก็บไว้ในหน่วยความจำของเบราว์เซอร์เท่านั้น
-// ยังไม่บันทึกลงฐานข้อมูล (เป็นงานของสัปดาห์ที่ 7)
+// สัปดาห์ที่ 7: บันทึกลงฐานข้อมูล Firestore จริง
 // ─────────────────────────────────────────────────────────────
 
 (function () {
@@ -13,12 +12,25 @@
   var สถานะAI = document.getElementById("สถานะAI");
   var ป้ายAI = document.getElementById("ป้ายAI");
 
-  // เติมรายการเลื่อนลงด้วยประเภทการลาที่มีอยู่
-  window.LEAVE_DATA.leaveTypes.forEach(function (ประเภท) {
-    var ตัวเลือก = document.createElement("option");
-    ตัวเลือก.value = ประเภท.id;
-    ตัวเลือก.textContent = ประเภท.name;
-    ช่องประเภท.appendChild(ตัวเลือก);
+  var ประเภททั้งหมด = [];
+
+  // อ่านประเภทการลาจาก Firestore หลังจากล็อกอินพร้อม
+  window.รอสถานะล็อกอิน.then(function () {
+    return db.collection("leaveTypes").get();
+  }).then(function (snap) {
+    ประเภททั้งหมด = snap.docs.map(function (d) {
+      return Object.assign({ id: d.id }, d.data());
+    });
+
+    // เติมรายการเลื่อนลง
+    ประเภททั้งหมด.forEach(function (ประเภท) {
+      var ตัวเลือก = document.createElement("option");
+      ตัวเลือก.value = ประเภท.id;
+      ตัวเลือก.textContent = ประเภท.name;
+      ช่องประเภท.appendChild(ตัวเลือก);
+    });
+  }).catch(function (err) {
+    เตือน("โหลดประเภทการลาไม่สำเร็จ: " + err.message);
   });
 
   ปุ่มAI.addEventListener("click", async function () {
@@ -35,7 +47,7 @@
     ปุ่มAI.textContent = "กำลังจัดประเภท...";
 
     try {
-      var ประเภทที่AIเลือก = await จัดประเภทด้วยAI(เหตุผล, window.LEAVE_DATA.leaveTypes);
+      var ประเภทที่AIเลือก = await จัดประเภทด้วยAI(เหตุผล, ประเภททั้งหมด);
       if (ประเภทที่AIเลือก) {
         ช่องประเภท.value = ประเภทที่AIเลือก.id;
         ป้ายAI.classList.remove("hidden");
@@ -76,28 +88,29 @@
       return;
     }
 
-    var ประเภท = window.LEAVE_DATA.leaveTypes.find(function (t) { return t.id === ค่า.leaveTypeId; });
+    var ประเภท = ประเภททั้งหมด.find(function (t) { return t.id === ค่า.leaveTypeId; });
 
-    // สัปดาห์ที่ 7 มีล็อกอินแล้ว ผู้ขอลาคือคนที่ล็อกอินอยู่จริง
     var ผู้ใช้ = firebase.auth().currentUser;
     var ใบใหม่ = {
-      id: "lr-ใหม่-" + Date.now(),
       title: ค่า.title,
       reason: ค่า.reason,
-      status: "รอพิจารณา",                       // ใบใหม่เริ่มที่ รอพิจารณา เสมอ
-      requesterId: ผู้ใช้.uid, requesterName: ผู้ใช้.displayName || ผู้ใช้.email,
-      approverId: "",      approverName: "",
-      leaveTypeId: ประเภท.id, leaveTypeName: ประเภท.name,
+      status: "รอพิจารณา",
+      requesterId: ผู้ใช้.uid,
+      requesterName: ผู้ใช้.displayName || ผู้ใช้.email,
+      approverId: "",
+      approverName: "",
+      leaveTypeId: ประเภท.id,
+      leaveTypeName: ประเภท.name,
       startDate: ค่า.startDate,
       endDate: ค่า.endDate,
       createdAt: เวลาตอนนี้()
     };
 
-    var รายการ = JSON.parse(sessionStorage.getItem("ใบลาที่ยื่นใหม่") || "[]");
-    รายการ.push(ใบใหม่);
-    sessionStorage.setItem("ใบลาที่ยื่นใหม่", JSON.stringify(รายการ));
-
-    location.href = "leave-requests.html";
+    db.collection("leaveRequests").add(ใบใหม่).then(function () {
+      location.href = "leave-requests.html";
+    }).catch(function (err) {
+      เตือน("บันทึกใบลาไม่สำเร็จ: " + err.message);
+    });
   });
 
   function เตือน(ข้อความ) {

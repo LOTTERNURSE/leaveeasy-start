@@ -1,8 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // js/leave-request-detail.js — หน้าที่ 3 รายละเอียดใบลา
 // สัปดาห์ที่ 6: อ่านใบลา + ความเห็นจาก Firestore จริง
-// ปุ่มอนุมัติ/ไม่อนุมัติ และส่งความเห็น ยังแก้แค่ในหน่วยความจำ
-// (เขียนกลับ Firestore จริงเป็นงานสัปดาห์ที่ 7)
+// สัปดาห์ที่ 7: ปุ่มอนุมัติ/ไม่อนุมัติ และส่งความเห็น เขียนกลับ Firestore จริงแล้ว
 // ─────────────────────────────────────────────────────────────
 
 (function () {
@@ -10,13 +9,17 @@
   var กล่องใบลา = document.getElementById("กล่องใบลา");
   var กล่องความเห็น = document.getElementById("กล่องความเห็น");
   var ใบ, ความเห็น;
+  var บทบาทผู้ใช้;   // role ของผู้ใช้ที่ล็อกอินอยู่ (จาก users/{uid}) ใช้คุมปุ่มอนุมัติ/ไม่อนุมัติ/AI
 
   // ใบที่เพิ่งยื่นในหน้าที่ 2 ยังไม่บันทึกลง Firestore จริง (งานสัปดาห์ที่ 7)
   // ถ้าหาใน Firestore ไม่เจอ ให้ลองหาใน sessionStorage แทน
   var ใบลาที่ยื่นใหม่ = JSON.parse(sessionStorage.getItem("ใบลาที่ยื่นใหม่") || "[]");
 
-  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วค่อยอ่าน Firestore
-  window.รอสถานะล็อกอิน.then(function () {
+  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วอ่าน role ของผู้ใช้ก่อน แล้วค่อยอ่าน Firestore
+  window.รอสถานะล็อกอิน.then(function (user) {
+    return db.collection("users").doc(user.uid).get();
+  }).then(function (userDoc) {
+    บทบาทผู้ใช้ = userDoc.exists ? userDoc.data().role : null;
     return db.collection("leaveRequests").doc(รหัสใบลา).get();
   }).then(function (doc) {
     if (doc.exists) {
@@ -60,8 +63,10 @@
       return '<div class="field-row"><span class="k">' + r[0] + "</span><span>" + r[1] + "</span></div>";
     }).join("");
 
-    // ปุ่มให้ AI ช่วยสรุปใบลา — ขึ้นเฉพาะใบที่ยังรอพิจารณา (ช่วยหัวหน้าอ่านก่อนกดอนุมัติ)
-    if (ใบ.status === "รอพิจารณา") {
+    // ปุ่มให้ AI ช่วยสรุปใบลา — ขึ้นเฉพาะใบที่ยังรอพิจารณา และเฉพาะ manager/hr
+    // (ฟีเจอร์นี้มีไว้ช่วยหัวหน้าอ่านก่อนตัดสินใจอนุมัติ ไม่ใช่ของผู้ขอลาเอง)
+    var มีสิทธิ์พิจารณา = บทบาทผู้ใช้ === "manager" || บทบาทผู้ใช้ === "hr";
+    if (ใบ.status === "รอพิจารณา" && มีสิทธิ์พิจารณา) {
       if (ใบ.aiSuggestion) {
         html +=
           '<div class="alert alert-ai"><strong>สรุปโดย AI — ช่วยอ่านก่อนตัดสินใจ ไม่ใช่คำตัดสิน</strong>' +
@@ -75,28 +80,31 @@
         '<p id="สถานะAIสรุป" class="hint hidden"></p>';
     }
 
-    // ปุ่มอนุมัติ / ไม่อนุมัติ ขึ้นเฉพาะใบที่ยังรอพิจารณา
-    if (ใบ.status === "รอพิจารณา") {
+    // ปุ่มอนุมัติ / ไม่อนุมัติ ขึ้นเฉพาะใบที่ยังรอพิจารณา และเฉพาะ manager/hr
+    // (employee เปลี่ยนสถานะไม่ได้เลย แม้จะเป็นเจ้าของใบเองก็ตาม — ตาม ACL)
+    if (ใบ.status === "รอพิจารณา" && มีสิทธิ์พิจารณา) {
       html +=
         '<div class="btn-row">' +
         '<button type="button" class="btn-ok" id="ปุ่มอนุมัติ">อนุมัติ</button>' +
         '<button type="button" class="btn-danger" id="ปุ่มไม่อนุมัติ">ไม่อนุมัติ</button>' +
         "</div>";
-    } else {
+    } else if (ใบ.status !== "รอพิจารณา") {
       html += '<p class="hint">ใบนี้พิจารณาแล้ว จึงเปลี่ยนสถานะต่อไม่ได้</p>';
     }
 
-    // ปุ่มลบ แสดงตลอด แต่กดไม่ได้ถ้าใบนี้พิจารณาแล้ว (ลบได้เฉพาะใบที่ยัง รอพิจารณา)
+    // ปุ่มลบ แสดงตลอด แต่กดไม่ได้ถ้าใบนี้พิจารณาแล้ว หรือไม่ใช่เจ้าของใบ
+    // (ลบได้เฉพาะใบของตัวเองที่ยัง รอพิจารณา ไม่ว่า role จะเป็นอะไรก็ตาม)
+    var เป็นเจ้าของใบ = ใบ.requesterId === firebase.auth().currentUser.uid;
     html +=
       '<div class="btn-row">' +
       '<button type="button" class="btn-danger" id="ปุ่มลบ"' +
-      (ใบ.status === "รอพิจารณา" ? "" : " disabled") +
+      (ใบ.status === "รอพิจารณา" && เป็นเจ้าของใบ ? "" : " disabled") +
       ">ลบใบลา</button>" +
       "</div>";
 
     กล่องใบลา.innerHTML = html;
 
-    if (ใบ.status === "รอพิจารณา") {
+    if (ใบ.status === "รอพิจารณา" && มีสิทธิ์พิจารณา) {
       document.getElementById("ปุ่มอนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("อนุมัติ"); });
       document.getElementById("ปุ่มไม่อนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("ไม่อนุมัติ"); });
       document.getElementById("ปุ่มAIสรุป").addEventListener("click", สรุปด้วยAI);
@@ -142,15 +150,27 @@
     });
   }
 
-  // ── เปลี่ยนสถานะ (สัปดาห์นี้เปลี่ยนแค่ในหน่วยความจำ) ──
+  // ── เปลี่ยนสถานะ (เขียนกลับ Firestore จริง) ──
   function เปลี่ยนสถานะ(สถานะใหม่) {
     // กฎ: จะไม่อนุมัติได้ ต้องมีความเห็นอย่างน้อย 1 รายการก่อน
     if (สถานะใหม่ === "ไม่อนุมัติ" && ความเห็น.length === 0) {
       alert("ต้องเขียนความเห็นอย่างน้อย 1 รายการก่อน จึงจะกดไม่อนุมัติได้");
       return;
     }
-    ใบ.status = สถานะใหม่;   // แก้เฉพาะช่อง status เท่านั้น
-    วาดใบลา();
+
+    var ปุ่มอนุมัติ = document.getElementById("ปุ่มอนุมัติ");
+    var ปุ่มไม่อนุมัติ = document.getElementById("ปุ่มไม่อนุมัติ");
+    if (ปุ่มอนุมัติ) ปุ่มอนุมัติ.disabled = true;
+    if (ปุ่มไม่อนุมัติ) ปุ่มไม่อนุมัติ.disabled = true;
+
+    db.collection("leaveRequests").doc(รหัสใบลา).update({ status: สถานะใหม่ }).then(function () {
+      ใบ.status = สถานะใหม่;   // แก้เฉพาะช่อง status เท่านั้น
+      วาดใบลา();
+    }).catch(function (err) {
+      alert("เปลี่ยนสถานะไม่สำเร็จ: " + err.message);
+      if (ปุ่มอนุมัติ) ปุ่มอนุมัติ.disabled = false;
+      if (ปุ่มไม่อนุมัติ) ปุ่มไม่อนุมัติ.disabled = false;
+    });
   }
 
   // ── ลบใบลา (ต้องยืนยันก่อนเสมอ) ──
@@ -184,7 +204,7 @@
       }).join("");
   }
 
-  // ── ส่งความเห็นใหม่ ──
+  // ── ส่งความเห็นใหม่ (เขียนกลับ Firestore จริง) ──
   function ส่งความเห็น() {
     var ช่อง = document.getElementById("ข้อความความเห็น");
     var เตือน = document.getElementById("เตือนความเห็น");
@@ -197,15 +217,26 @@
     }
     เตือน.classList.add("hidden");
 
-    // สัปดาห์ที่ 6 ยังไม่มีล็อกอิน จึงสมมติว่าผู้เขียนคือ สมหญิง รักงาน
-    ความเห็น.push({
-      id: "ap-ใหม่-" + Date.now(),
-      requestId: ใบ.id,
-      authorId: "u002", authorName: "สมหญิง รักงาน",
+    // ผู้เขียนความเห็นคือคนที่ล็อกอินอยู่จริง (เหมือนกับ new-leave-request.js)
+    var ผู้ใช้ = firebase.auth().currentUser;
+    var ปุ่ม = document.getElementById("ปุ่มส่งความเห็น");
+    ปุ่ม.disabled = true;
+
+    var ความเห็นใหม่ = {
+      authorId: ผู้ใช้.uid, authorName: ผู้ใช้.displayName || ผู้ใช้.email,
       message: ข้อความ,
       createdAt: เวลาตอนนี้()
+    };
+
+    db.collection("leaveRequests").doc(รหัสใบลา).collection("approvals").add(ความเห็นใหม่).then(function (ref) {
+      ความเห็น.push(Object.assign({ id: ref.id }, ความเห็นใหม่));
+      ช่อง.value = "";
+      วาดความเห็น();
+      ปุ่ม.disabled = false;
+    }).catch(function (err) {
+      เตือน.textContent = "⚠️ ส่งความเห็นไม่สำเร็จ: " + err.message;
+      เตือน.classList.remove("hidden");
+      ปุ่ม.disabled = false;
     });
-    ช่อง.value = "";
-    วาดความเห็น();
   }
 })();

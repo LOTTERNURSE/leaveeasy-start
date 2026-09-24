@@ -6,9 +6,17 @@
 (function () {
   var กล่อง = document.getElementById("ผลลัพธ์");
 
-  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วค่อยอ่าน Firestore
-  window.รอสถานะล็อกอิน.then(function () {
-    return db.collection("leaveRequests").get();
+  // รอให้แน่ใจก่อนว่าล็อกอินอยู่จริง (auth token พร้อม) แล้วค่อยอ่าน role ของผู้ใช้
+  // ก่อนตัดสินใจว่าจะอ่านใบลาของตัวเองอย่างเดียว (employee) หรือทั้งหมด (manager/hr)
+  window.รอสถานะล็อกอิน.then(function (user) {
+    return db.collection("users").doc(user.uid).get().then(function (userDoc) {
+      var บทบาทผู้ใช้ = userDoc.exists ? userDoc.data().role : null;
+      if (บทบาทผู้ใช้ === "manager" || บทบาทผู้ใช้ === "hr") {
+        return db.collection("leaveRequests").get();
+      }
+      // employee หรือ role ไม่รู้จัก/ไม่มีเอกสาร users — fallback ไปทางที่ปลอดภัยกว่าเสมอ
+      return db.collection("leaveRequests").where("requesterId", "==", user.uid).get();
+    });
   }).then(function (snap) {
     var ใบลาจากFirestore = snap.docs.map(function (d) {
       return Object.assign({ id: d.id }, d.data());

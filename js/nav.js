@@ -6,11 +6,12 @@
 // ─────────────────────────────────────────────────────────────
 
 (function () {
+  // "ประเภทการลา" ไม่อยู่ในนี้ตั้งแต่แรก เพราะเป็นเมนูเฉพาะฝ่ายบุคคล (role: hr)
+  // ต้องรอรู้ก่อนว่าใครล็อกอินอยู่ จึงค่อยแทรกเข้าไปทีหลัง (ดู onAuthStateChanged ด้านล่าง)
   var เมนู = [
     { href: "index.html",             ชื่อ: "หน้าแรก" },
     { href: "leave-requests.html",    ชื่อ: "รายการใบลา" },
-    { href: "new-leave-request.html", ชื่อ: "ยื่นใบลาใหม่" },
-    { href: "leave-types.html",       ชื่อ: "ประเภทการลา" }
+    { href: "new-leave-request.html", ชื่อ: "ยื่นใบลาใหม่" }
   ];
 
   // ชื่อไฟล์ของหน้าที่กำลังเปิดอยู่ เอาไว้ขีดเส้นใต้เมนูที่ตรงกัน
@@ -42,6 +43,22 @@ firebase.auth().onAuthStateChanged(function (user) {
   document.getElementById("ปุ่มออกจากระบบ").addEventListener("click", function (e) {
     e.preventDefault();
     firebase.auth().signOut().then(function () { location.href = "login.html"; });
+  });
+
+  // ฝ่ายบุคคล (role: hr) เท่านั้นที่เห็นเมนู "ประเภทการลา" — เช็คจาก users/{uid}
+  db.collection("users").doc(user.uid).get().then(function (doc) {
+    var ข้อมูลผู้ใช้ = doc.data();
+    if (!ข้อมูลผู้ใช้ || ข้อมูลผู้ใช้.role !== "hr") return;
+
+    var หน้าปัจจุบัน = location.pathname.split("/").pop() || "index.html";
+    var ลิงก์ประเภทการลา = document.createElement("a");
+    ลิงก์ประเภทการลา.href = "leave-types.html";
+    ลิงก์ประเภทการลา.textContent = "ประเภทการลา";
+    if (หน้าปัจจุบัน === "leave-types.html") ลิงก์ประเภทการลา.className = "active";
+
+    ที่วางชื่อ.parentNode.insertBefore(ลิงก์ประเภทการลา, ที่วางชื่อ);
+  }).catch(function () {
+    // อ่าน role ไม่สำเร็จ (เช่น ยังไม่มีเอกสารผู้ใช้) ก็แค่ไม่แสดงเมนูนี้ ไม่ต้องแจ้งเตือน
   });
 });
 

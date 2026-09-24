@@ -1,20 +1,213 @@
 // ─────────────────────────────────────────────────────────────
 // firestore.rules — กฎเฝ้าข้อมูลของ LeaveEasy
-// สัปดาห์ที่ 7: กฎขั้นต่ำเดียว "ต้องล็อกอินก่อน" ครอบทุกโฟลเดอร์
-// (users, leaveTypes, leaveRequests รวมโฟลเดอร์ย่อย approvals)
-// ยังไม่แยกสิทธิ์ตามบทบาท (employee / manager / hr) — เป็นงานสัปดาห์ที่ 8
+// สัปดาห์ที่ 8: แยกสิทธิ์ตามบทบาทจริง (employee / manager / hr)
+// ตาม ACL.md — เดิมมีแค่กฎขั้นต่ำ "ต้องล็อกอินก่อน" ไม่เช็ค role เลย
 //
-// วิธีใช้ไฟล์นี้: ยังไม่ deploy — เอาข้อความด้านล่างไปวางแทนกฎเดิมใน
+// ⚠️ ยังไม่ deploy — เอาข้อความทั้งไฟล์นี้ไปวางแทนกฎเดิมใน
 // Firebase Console → Firestore Database → Rules แล้วกด Publish เอง
+//
+// สรุปสิทธิ์ตามบทบาท (ดูรายละเอียดเต็มที่ ACL.md):
+//   employee — อ่าน/ลบ/คอมเมนต์เฉพาะใบของตัวเอง · สร้างใบใหม่ของตัวเองได้
+//              · เปลี่ยน status ไม่ได้เลย · แก้ leaveTypes ไม่ได้
+//   manager  — อ่านทุกใบ · เปลี่ยน status ได้ (อนุมัติ/ไม่อนุมัติ) · คอมเมนต์ทุกใบ
+//              · ลบได้เฉพาะใบของตัวเอง (เหมือน employee) · แก้ leaveTypes ไม่ได้
+//   hr       — ทำได้ทุกอย่างที่ manager ทำได้ + แก้/เพิ่ม/ลบ leaveTypes ได้
+//
+// หมายเหตุสำคัญสำหรับฝั่ง client (อ่านท้ายไฟล์นี้เพิ่มด้วย):
+//   Firestore ตรวจกฎกับ "query" ไม่ใช่กรองทีละ document — ถ้า employee
+//   จะดึงรายการใบลาแบบ list (.get() ทั้งคอลเลกชัน) โดยไม่มี
+//   .where("requesterId", "==", uid) กำกับมาด้วย คำขอทั้งก้อนจะถูกปฏิเสธ
+//   เพราะกฎพิสูจน์ไม่ได้ว่าทุกเอกสารที่อาจถูกส่งกลับเป็นของผู้ใช้คนนี้จริง
 // ─────────────────────────────────────────────────────────────
 
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ครอบทุก document ในทุกโฟลเดอร์ (รวม leaveRequests/{id}/approvals/{id})
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // ===============================================================
+    // Helper functions
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // อ่าน role ของผู้ใช้ที่ล็อกอินอยู่ จากไฟล์ users/{uid} ของตัวเอง
+    // (get() ในกฎเป็นการอ่านตรง ไม่ผ่าน allow read ของ users อีกชั้น
+    // จึงใช้เช็ค role ได้แม้ users/{uid} จะไม่เปิดให้อ่านข้ามคนก็ตาม)
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isManager() {
+      return isSignedIn() && role() == 'manager';
+    }
+
+    function isHR() {
+      return isSignedIn() && role() == 'hr';
+    }
+
+    function isManagerOrHR() {
+      return isManager() || isHR();
+    }
+
+    // เพิ่มโดยข้อเสนอของ skill ตรวจกฎ (firebase-security-rules-auditor) —
+    // ไม่มีใครขอจำกัดความยาวช่องข้อความไว้ แต่ไม่เช็คเลยจะเป็นช่องโหว่
+    // Resource Exhaustion/DoS จริง (ใครก็ตามที่เขียนได้ยัดข้อความยาวเป็น MB
+    // ลงไปในช่องเดียวได้) ตัวเลขที่ตั้งกว้าง ๆ พอให้ใช้งานจริงได้สบาย
+    function isValidLen(str, maxLen) {
+      return str is string && str.size() <= maxLen;
+    }
+
+    // เกณฑ์เดียวกับ "allow read" ของ leaveRequests เอง — ใช้ครอบ
+    // subcollection approvals/aiLog ด้วย ตามที่งานนี้ระบุว่าต้องใช้ตรรกะเดียวกัน
+    // เช็ค exists() ก่อนกัน orphaned subcollection (เอกสารแม่ถูกลบไปแล้ว
+    // แต่โฟลเดอร์ย่อยยังค้างอยู่ — ต้องปฏิเสธไปเลย ไม่ใช่งานที่มีใครขอ
+    // แต่เป็นความเสี่ยงพื้นฐานที่ควรกันไว้)
+    function canSeeLeaveRequest(requestId) {
+      let leaveRequestPath = /databases/$(database)/documents/leaveRequests/$(requestId);
+      return isSignedIn() && exists(leaveRequestPath) &&
+        (get(leaveRequestPath).data.requesterId == request.auth.uid || isManagerOrHR());
+    }
+
+    // ===============================================================
+    // users/{userId}  { name, email, role }
+    // ===============================================================
+    match /users/{userId} {
+      // อ่านได้เฉพาะไฟล์ของตัวเอง — email ถือเป็นข้อมูลส่วนตัว และตอนนี้
+      // ไม่มีที่ไหนในโค้ดอ่านไฟล์ users ของคนอื่นอยู่แล้ว
+      allow read: if isSignedIn() && request.auth.uid == userId;
+
+      // สมัครสมาชิก (register.js) เขียนไฟล์ตัวเองได้ครั้งเดียว — role ต้อง
+      // เป็น "employee" เท่านั้นเสมอ กันไม่ให้ client ที่ถูกแก้ไขส่ง role
+      // อื่น (manager/hr) มาแทนตอนสมัคร (privilege escalation)
+      allow create: if isSignedIn() && request.auth.uid == userId &&
+        request.resource.data.keys().hasOnly(['name', 'email', 'role']) &&
+        isValidLen(request.resource.data.name, 200) &&
+        isValidLen(request.resource.data.email, 320) &&
+        request.resource.data.role == 'employee';
+
+      // ไม่มีฟีเจอร์แก้ role หรือแก้โปรไฟล์ที่ไหนในระบบตอนนี้ — ปิดไว้ทั้งคู่
+      allow update, delete: if false;
+    }
+
+    // ===============================================================
+    // leaveTypes/{id}  { name }
+    // ===============================================================
+    match /leaveTypes/{typeId} {
+      // ทุกบทบาทที่ล็อกอินอยู่อ่านได้ (หน้ายื่นใบลาใหม่ต้องใช้ตัวเลือกนี้
+      // ไม่ว่าจะเป็น employee/manager/hr)
+      allow read: if isSignedIn();
+
+      // เพิ่ม/แก้/ลบ ได้เฉพาะ hr เท่านั้น (employee และ manager แก้ไม่ได้)
+      // hasOnly(['name']) กันไม่ให้แถม field อื่นเข้ามา ให้เข้มงวดเท่า
+      // collection อื่นในไฟล์นี้ (leaveTypes มี field เดียวคือ name ตามสเปก)
+      allow create, update: if isHR() &&
+        request.resource.data.keys().hasOnly(['name']) &&
+        isValidLen(request.resource.data.name, 200);
+      allow delete: if isHR();
+    }
+
+    // ===============================================================
+    // leaveRequests/{id}  { title, reason, status, requesterId,
+    //   requesterName, approverId, approverName, leaveTypeId,
+    //   leaveTypeName, startDate, endDate, createdAt, aiSuggestion }
+    // ===============================================================
+    match /leaveRequests/{requestId} {
+
+      // employee เห็นแค่ใบตัวเอง (requesterId ตรงกับ uid) · manager/hr เห็นทุกใบ
+      allow read: if isSignedIn() &&
+        (resource.data.requesterId == request.auth.uid || isManagerOrHR());
+
+      // สร้างใบลาใหม่ได้เฉพาะของตัวเอง (requesterId ต้องตรงกับ auth.uid)
+      // และ status ตอนสร้างต้องเป็น "รอพิจารณา" เท่านั้น (ห้าม client ส่ง
+      // สถานะอื่นมาตั้งแต่สร้าง) — hasOnly กันไม่ให้แถมช่องอื่นที่ new-leave-request.js
+      // ไม่ได้ใช้เข้ามาในเอกสาร
+      allow create: if isSignedIn() &&
+        request.resource.data.keys().hasOnly([
+          'title', 'reason', 'status', 'requesterId', 'requesterName',
+          'approverId', 'approverName', 'leaveTypeId', 'leaveTypeName',
+          'startDate', 'endDate', 'createdAt'
+        ]) &&
+        request.resource.data.requesterId == request.auth.uid &&
+        request.resource.data.status == 'รอพิจารณา' &&
+        isValidLen(request.resource.data.title, 200) &&
+        isValidLen(request.resource.data.reason, 2000) &&
+        isValidLen(request.resource.data.requesterName, 200) &&
+        isValidLen(request.resource.data.approverId, 200) &&
+        isValidLen(request.resource.data.approverName, 200) &&
+        isValidLen(request.resource.data.leaveTypeId, 200) &&
+        isValidLen(request.resource.data.leaveTypeName, 200) &&
+        isValidLen(request.resource.data.startDate, 20) &&
+        isValidLen(request.resource.data.endDate, 20) &&
+        // createdAt เป็นข้อความรูปแบบ "ปี-เดือน-วัน ชม:นาที" จาก เวลาตอนนี้()
+        // ใน util.js ไม่ใช่ Firestore timestamp type — hasOnly() เพียงอย่าง
+        // เดียวไม่ได้บังคับว่าช่องนี้ต้องมีหรือต้องเป็นชนิด/ขนาดที่ถูกต้อง
+        // (skill ตรวจกฎชี้ว่าเป็นช่องโหว่ Type Safety จริง) จึงเพิ่มบรรทัดนี้
+        isValidLen(request.resource.data.createdAt, 30);
+
+      // แก้ได้ 2 แบบเท่านั้น ห้ามเขียนทับช่องอื่นเด็ดขาด (หัวข้อ 6 ของสเปก):
+      //   1) เปลี่ยน status — เฉพาะ manager/hr และเปลี่ยนได้ทางเดียวเท่านั้น
+      //      จาก "รอพิจารณา" ไปเป็น "อนุมัติ"/"ไม่อนุมัติ" (ห้ามย้อนกลับ —
+      //      ตรงกับหัวข้อ 6 ของสเปกที่บอกว่าทั้งสองสถานะนี้เป็นปลายทาง)
+      //   2) เขียน aiSuggestion — เฉพาะ manager/hr เหมือนกัน (ปุ่มสรุป AI
+      //      กำลังถูกจำกัดให้เห็นเฉพาะ manager/hr โดยงานคู่ขนานอีกก้อน)
+      // employee ไม่มีทางเข้าเงื่อนไขไหนได้เลย เพราะ isManagerOrHR() เป็นเท็จ
+      allow update: if isManagerOrHR() && (
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          resource.data.status == 'รอพิจารณา' &&
+          request.resource.data.status in ['อนุมัติ', 'ไม่อนุมัติ']
+        ) ||
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['aiSuggestion']) &&
+          isValidLen(request.resource.data.aiSuggestion, 5000)
+        )
+      );
+
+      // ลบได้เฉพาะใบของตัวเองที่ยัง "รอพิจารณา" — กติกาเดียวกันทุกบทบาท
+      // แม้แต่ manager/hr ก็ลบใบของคนอื่นไม่ได้ ตามตาราง ACL.md
+      allow delete: if isSignedIn() &&
+        resource.data.requesterId == request.auth.uid &&
+        resource.data.status == 'รอพิจารณา';
+
+      // ── leaveRequests/{id}/approvals/{id}  { authorId, authorName, message, createdAt } ──
+      match /approvals/{approvalId} {
+        // เห็นความเห็นได้ก็ต่อเมื่อเห็นใบลาแม่ได้ (employee เห็นแค่ใบตัวเอง,
+        // manager/hr เห็นทุกใบ)
+        allow read: if canSeeLeaveRequest(requestId);
+
+        // เขียนความเห็นได้ต้องเห็นใบลาแม่ได้ก่อน แล้ว authorId ต้องเป็นตัวเอง
+        // เท่านั้น (กันสวมรอยเป็นคนอื่น) — employee เขียนได้เฉพาะใบตัวเอง
+        // เพราะเห็นแค่ใบตัวเองอยู่แล้ว, manager/hr เขียนได้ทุกใบเพราะเห็นทุกใบ
+        allow create: if canSeeLeaveRequest(requestId) &&
+          request.resource.data.keys().hasOnly(['authorId', 'authorName', 'message', 'createdAt']) &&
+          request.resource.data.authorId == request.auth.uid &&
+          isValidLen(request.resource.data.authorName, 200) &&
+          isValidLen(request.resource.data.message, 5000) &&
+          isValidLen(request.resource.data.createdAt, 30);
+
+        // ไม่มีฟีเจอร์แก้/ลบความเห็นที่ไหนในระบบตอนนี้
+        allow update, delete: if false;
+      }
+
+      // ── leaveRequests/{id}/aiLog/{id}  { input, output, createdAt } ──
+      match /aiLog/{logId} {
+        // อ่านได้ถ้าเห็นใบลาแม่ได้ (เหมือน approvals)
+        allow read: if canSeeLeaveRequest(requestId);
+
+        // เขียนได้เฉพาะ manager/hr เท่านั้น — ปุ่ม "ให้ AI ช่วยสรุปใบลา" ที่เขียน
+        // log นี้ถูกจำกัดให้เห็นเฉพาะ manager/hr ในหน้าเว็บอยู่แล้ว กฎนี้บังคับ
+        // ให้ตรงกันฝั่งฐานข้อมูลด้วย กัน employee เรียกเขียนตรงผ่าน devtools
+        allow create: if canSeeLeaveRequest(requestId) && isManagerOrHR() &&
+          request.resource.data.keys().hasOnly(['input', 'output', 'createdAt']) &&
+          isValidLen(request.resource.data.input, 20000) &&
+          isValidLen(request.resource.data.output, 20000) &&
+          isValidLen(request.resource.data.createdAt, 30);
+
+        allow update, delete: if false;
+      }
     }
   }
 }

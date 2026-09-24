@@ -20,6 +20,13 @@ desktop.ini
 .vscode/
 .idea/
 
+# ── ผลลัพธ์จากการรันเทสต์ Playwright (สัปดาห์ที่ 9) — สร้างใหม่ได้ทุกครั้งที่รันเทสต์ ──
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/.playwright-mcp/
+
 
 # ── ไฟล์ตั้งค่าเฉพาะเครื่อง (ของใครของมัน ไม่ควรใช้ร่วมกันในทีม) ──
 .claude/settings.local.json
