@@ -14,7 +14,7 @@ model: opus
 ### 1. คีย์หลุด (ร้ายแรงสุด)
 - สแกนไฟล์ที่จะ push (`git diff --cached`, `git ls-files`) และประวัติ (`git log -p`) หา `sk-or-`, `sk-`, `private_key`, `BEGIN PRIVATE KEY`, รหัสผ่าน, token
 - ไฟล์ที่ชื่อมีคำว่า key / secret / config / .env ต้องหยุดแล้วรายงานทุกครั้ง แม้จะคิดว่าปลอดภัย
-- ข้อยกเว้นเดียว: Firebase web `apiKey` ใน `js/firebase-config.js` และ `scripts/seed-firestore.js` เปิดเผยได้โดยตั้งใจ
+- ข้อยกเว้นเดียว: Firebase web `apiKey` ใน `js/firebase-config.js` เปิดเผยได้โดยตั้งใจ
 - `js/openrouter-config.js` และ `.env` ต้องอยู่ใน `.gitignore` และไม่อยู่ใน `git ls-files`
 
 ### 2. Security Rules (`firestore.rules`) เทียบ `ACL.md`

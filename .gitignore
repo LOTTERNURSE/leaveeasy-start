@@ -41,7 +41,7 @@ skills-lock.json
 
 # ── ไฟล์ที่มีคีย์/ความลับ ──
 #
-# ⚠️ apiKey ใน js/firebase-config.js และ scripts/seed-firestore.js
+# ⚠️ apiKey ใน js/firebase-config.js
 #    "ไม่ใช่" คีย์ลับ — เป็น apiKey ฝั่งเว็บของ Firebase ที่ตั้งใจให้เปิดเผยได้
 #    (Firebase คุมสิทธิ์จริงด้วย Security Rules ไม่ใช่การซ่อนค่านี้)
 #    จึง "ไม่" กันไฟล์นั้น — รายการข้างล่างกันเฉพาะไฟล์ที่มีคีย์ลับจริง ๆ

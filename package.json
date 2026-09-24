@@ -5,12 +5,10 @@
   "description": "LeaveEasy — จุดเริ่มต้นของใบงาน ADT-RAISE Batch 2 Module 2",
   "scripts": {
     "dev": "serve -l 3000 .",
-    "seed": "node scripts/seed-firestore.js",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "firebase": "^12.17.1",
     "serve": "^14.2.1"
   }
 }
